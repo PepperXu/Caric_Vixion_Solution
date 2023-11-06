@@ -28,16 +28,80 @@
 #include <message_filters/sync_policies/approximate_time.h>
 
 #include <caric_mission/CreatePPComTopic.h>
+
 struct position_info{
     Eigen::Vector3d position;
     bool update=false;
 };
+
 class Boundingbox
 {
 public:
+    Boundingbox(string str)
+    {
+        vector<string> spilited_str;
+        std::istringstream iss(str);
+        std::string substring;
+        while (std::getline(iss, substring, ','))
+        {
+            spilited_str.push_back(substring);
+        }
+        
+        int i = 0;
+        while (i < 24)
+        {
+            vertices.push_back(Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2])));
+            i = i + 3;
+        }
+        
+        while (i < 33)
+        {
+            rotation_matrix(i - 24) = stod(spilited_str[i]);
+            i++;
+        }
+        while (i < 36)
+        {
+            center = Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2]));
+            i = i + 3;
+        }
+        while (i < 39)
+        {
+            size_vector = Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2]));
+            i = i + 3;
+        }
+        while (i < 42)
+        {
+            global_in_out.push_back(Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2])));
+            i = i + 3;
+        }
+        while (i < 45)
+        {
+            global_in_out.push_back(Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2])));
+            i = i + 3;
+        }
+        
+        xsize = stod(spilited_str[i]);
+        i++;
+        ysize = stod(spilited_str[i]);
+        i++;
+        zsize = stod(spilited_str[i]);
+        i++;
+        id = stod(spilited_str[i]);
+        i++;
+        state = stod(spilited_str[i]);
+        i++;
+        volume = stod(spilited_str[i]);
+        i++;
+        use_x = stod(spilited_str[i]);
+        i++;
+        use_y = stod(spilited_str[i]);
+        i++;
+        use_z = stod(spilited_str[i]);
+        i++;
+    }
     Boundingbox(const std::vector<Eigen::Vector3d> &vec, int id_in)
     {
-        vertice = vec;
+        vertices = vec;
         id = id_in;
         center = Eigen::Vector3d(0, 0, 0);
         for (int index = 0; index < vec.size(); index++)
@@ -132,7 +196,9 @@ public:
         result = transfer_matrix * rotation_matrix.inverse();
         return result;
     }
-
+    const vector<Eigen::Vector3d> getVertices() const{
+        return vertices;
+    }
     const Vector3d getCenter() const
     {
         return center;
@@ -216,8 +282,51 @@ public:
         return result;
     }
 
+    string generate_string_version() const
+    {
+        string result = "";
+        for (int i = 0; i < 8; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                result = result + to_string(vertices[i][j]) + ",";
+            }
+        }
+        for (int i = 0; i < 9; i++)
+        {
+            result = result + to_string(rotation_matrix(i)) + ",";
+        }
+        for (int j = 0; j < 3; j++)
+        {
+            result = result + to_string(center[j]) + ",";
+        }
+        for (int j = 0; j < 3; j++)
+        {
+            result = result + to_string(size_vector[j]) + ",";
+        }
+
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                result = result + to_string(global_in_out[i][j]) + ",";
+            }
+        }
+        result = result + to_string(xsize) + ",";
+        result = result + to_string(ysize) + ",";
+        result = result + to_string(zsize) + ",";
+        result = result + to_string(id) + ",";
+        result = result + to_string(state) + ",";
+        result = result + to_string(volume) + ",";
+        result = result + to_string(use_x) + ",";
+        result = result + to_string(use_y) + ",";
+        result = result + to_string(use_z) + ",";
+        // cout<<result<<endl;
+        return result;
+    }
+
 private:
-    vector<Eigen::Vector3d> vertice; 
+    vector<Eigen::Vector3d> vertices; 
     double volume = 0;
     Eigen::Vector3d center;                
     Eigen::Matrix3d rotation_matrix;       
@@ -274,13 +383,18 @@ private:
     ros::Timer Agent_init_ensure_Timer;
     double agent_last_update_time;
 
-    vector<Boundingbox> box_set;
+    vector<Boundingbox> bbox_set;
     map<string,position_info> position_pair;
 
     bool finish_bbox_record = false;
     bool agent_info_get=false;
 
     list<string> namelist;
+
+    bool finish_message_generate = false;
+    string result;
+
+    vector<vector<Boundingbox>> bbox_set_2_teams;
 
     void bboxCallback(const sensor_msgs::PointCloud::ConstPtr &msg){
         if(finish_bbox_record||!agent_info_get)
@@ -289,7 +403,7 @@ private:
         }
         sensor_msgs::PointCloud cloud = *msg;
         int num_points = cloud.points.size();
-        if (num_points % 8 == 0 && num_points > 8 * box_set.size())
+        if (num_points % 8 == 0 && num_points > 8 * bbox_set.size())
         {
             int num_box = num_points / 8;
             for (int i = 0; i < num_box; i++)
@@ -299,12 +413,14 @@ private:
                 {
                     point_vec.push_back(Eigen::Vector3d(cloud.points[8 * i + j].x, cloud.points[8 * i + j].y, cloud.points[8 * i + j].z));
                 }
-                box_set.push_back(Boundingbox(point_vec, i));
+                bbox_set.push_back(Boundingbox(point_vec, i));
                 point_vec.clear();
             }
         }
         finish_bbox_record = true;
 
+
+        task_assignment();
         publish_task_message();
     }
 
@@ -353,13 +469,25 @@ private:
 
 
     void publish_task_message(){
+        if(!finish_message_generate)
+            return;
         std_msgs::String task;
         string task_str="";
 
         task.data=task_str;
         cmd_pub_.publish(task);
     }
+    void task_assignment(){
+        bbox_set_2_teams.resize(2);
+        for(int i=0;i<bbox_set.size();i++){
+            if(i<bbox_set.size()){
+                bbox_set_2_teams[0].push_back(bbox_set[i]);
+            } else {
+                bbox_set_2_teams[1].push_back(bbox_set[i]);
+            }
+        }
 
+    }
 
     Eigen::Vector3d str2point(string input)
     {
@@ -377,6 +505,21 @@ private:
             cout << "error use str2point 2" << endl;
         }
         return result;
+    }
+
+    void generate_massage()
+    {
+        result="";
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < bbox_set_2_teams[i].size(); j++)
+            {
+                result = result + bbox_set_2_teams[i][j].generate_string_version();
+                result = result + ";";
+            }
+            result = result + "|";
+        }
+        finish_message_generate=true;
     }
 
 

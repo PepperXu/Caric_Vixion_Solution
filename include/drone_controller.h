@@ -21,7 +21,6 @@
 #include <caric_mission/CreatePPComTopic.h>
 #include "utility.h"
 #include "Astar.h"
-#include "gcs_controller.h"
 #include "grid_map.h"
 
 
@@ -39,27 +38,43 @@ public:
         {
             is_leader = true;
         }
-        //vector<string> spilited_str;
-        //std::istringstream iss(task_msg);
-        //std::string substring;
-        //while (std::getline(iss, substring, ';'))
-        //{
-        //    spilited_str.push_back(substring);
-        //}
-        //generate_global_map(spilited_str[0]);
-        //if (spilited_str.size() > 1)
-        //{
-        //    for (int j = 0; j < path_index.size(); j++)
-        //    {
-        //        map_set.push_back(grid_map(Boundingbox(spilited_str[path_index[j]]), grid_size, teammates_name.size(), teammates_name));
-        //    }
-        //}
-        //else
-        //{
-        //    cout << "Path Assigned Error!!!" << endl;
-        //}
-//
-        //cout << "size of path assigned:  " << map_set.size() << endl;
+        vector<string> splited_str;
+        std::istringstream iss(task_msg);
+        std::string substring;
+        while (std::getline(iss, substring, '|'))
+        {
+            splited_str.push_back(substring);
+        }
+        if(splited_str.size() < 2){
+            cout << "Bbox Assigned Error!!!" << endl;
+        } else {
+            if(namespace_=="/jurong"){
+                vector<string> splited_splited_str;
+                std::istringstream iss(splited_str[0]);
+                std::string substring;
+                while (std::getline(iss, substring, ';'))
+                {
+                    splited_splited_str.push_back(substring);
+                }
+                for(int i=0;i<splited_splited_str.size();i++){
+                    Boundingbox bbox = Boundingbox(splited_splited_str[i]);
+                    assigned_bbox_set.push_back(bbox);
+                }
+            }
+            else{
+                vector<string> splited_splited_str;
+                std::istringstream iss(splited_str[1]);
+                std::string substring;
+                while (std::getline(iss, substring, ';'))
+                {
+                    splited_splited_str.push_back(substring);
+                }
+                for(int i=0;i<splited_splited_str.size();i++){
+                    Boundingbox bbox = Boundingbox(splited_splited_str[i]);
+                    assigned_bbox_set.push_back(bbox);
+                }
+            }
+        }
         finish_init = true;
     }
 
@@ -102,6 +117,20 @@ public:
         }
     }
 
+    void update_gimbal(Eigen::Vector3d gimbal_position)
+    {
+        if (!finish_init)
+        {
+            return;
+        }
+        Eigen::Matrix3d gimbal_rotation_matrix = Rpy2Rot(gimbal_position);
+        Eigen::Matrix3d now_rot = gimbal_rotation_matrix * drone_rotation_matrix;
+        Eigen::Vector3d rpy = Rot2rpy(now_rot);
+        rpy.x() = 0;
+        global_map.update_gimbal(rpy, false);
+
+    }
+
     void update_position(Eigen::Vector3d point, Eigen::Matrix3d rotation)
     {
         if (!odom_get)
@@ -116,15 +145,6 @@ public:
             return;
         }
         global_map.update_position(point);
-        //if (map_set.size() > now_id)
-        //{
-        //    global_map.update_position(point);
-        //    map_set[now_id].update_position(point);
-        //}
-        //else
-        //{
-        //    global_map.update_position(point);
-        //}
         odom_get = true;
     }
     
@@ -135,72 +155,21 @@ public:
             return;
         }
 
-        if (namespace_ == "/jurong" || namespace_ == "/raffles")
-        {
-           ////yolo();
-            Eigen::Vector3d target = map_set[now_id].get_fly_in_point_global();
+        if (namespace_ == "/jurong" || namespace_ == "/raffles"){
+            Eigen::Vector3d target = assigned_bbox_set[cur_bbox_index].getVertices()[cur_vertex_index];
             bool flag = false;
-            global_map.Astar_local(target, namespace_, info_mannager.get_leader(), flag, false);
-            get_way_point = update_target_waypoint();
+            global_map.Astar_local(target, namespace_, namespace_, flag, false);
+            waypoint_get = update_target_waypoint();
             path_show = global_map.get_path_show();
-            //map_set[now_id].update_fly_in_index(flag);
-            //is_transfer = !map_set[now_id].check_whether_fly_in(false);
-            //if (!is_transfer)
-            //{
-            //    map_set[now_id].set_state(1);
-            //    state = map_set[now_id].get_state();
-            //}
-           ////yolo();
-        }
-        else
-        {
-            if (state == 0)
-            {
-                is_transfer = true;
-                if (info_mannager.get_leader_state() == 0 && !not_delete)
-                {
-                    not_delete = true;
+            if(flag){
+                if(cur_vertex_index == 7){
+                    if(cur_bbox_index == (assigned_bbox_set.size() - 1)){
+                        return;
+                    }
+                    cur_bbox_index++;
+                    cur_vertex_index = 0;
                 }
-            }
-            if (info_mannager.get_leader_state() == 0)
-            {
-                Eigen::Vector3d target;
-                info_mannager.get_leader_position(target);
-                bool flag = false;
-                global_map.Astar_local(target, namespace_, info_mannager.get_leader(), flag, false);
-                get_waypoint = update_target_waypoint();
-                path_show = global_map.get_path_show();
-                return;
-            }
-            else if (state == 1)
-            {
-                Eigen::Vector3d target = map_set[now_id].get_fly_in_point_global();
-                bool flag = false;
-                global_map.Astar_photo(target, namespace_, flag);
-                get_waypoint = update_target_waypoint();
-                path_show = global_map.get_path_show();
-                is_transfer = !map_set[now_id].check_whether_fly_in(false);
-                if (!is_transfer)
-                {
-                    map_set[now_id].set_state(1);
-                    state = map_set[now_id].get_state();
-                }
-                return;
-            }
-            else
-            {
-                Eigen::Vector3d target = map_set[now_id].get_fly_in_point_global();
-                bool flag = false;
-                global_map.Astar_photo(target, namespace_, flag);
-                get_waypoint = update_target_waypoint();
-                path_show = global_map.get_path_show();
-                return;
-                // bool flag = false;
-                // global_map.Astar_photo(now_global_position, namespace_, flag);
-                // get_way_point = update_target_waypoint();
-                // path_show = global_map.get_path_show();
-                // return;
-
+                cur_vertex_index++;
             }
         }
     }
@@ -213,18 +182,6 @@ public:
         {
             target_position = global_map.get_next_point(true);
             return true;
-            //if (is_transfer || map_set.size() == now_id)
-            //{
-            //    target_position = global_map.get_next_point(true);
-            //    finish_first_planning = true;
-            //    return true;
-            //}
-            //else
-            //{
-            //    target_position = map_set[now_id].get_next_point(false);
-            //    finish_first_planning = true;
-            //    return true;
-            //}
         }
         else
         {
@@ -238,27 +195,10 @@ public:
         {
             return false;
         }
-        if (get_waypoint)
+        if (waypoint_get)
         {
             global_map.get_gimbal_rpy(target_angle_rpy);
             cmd = position_msg_build(now_global_position, target_position, target_angle_rpy.z());
-            //if (is_transfer || map_set.size() == now_id)
-            //{
-            //    global_map.get_gimbal_rpy(target_angle_rpy);
-            //    cmd = position_msg_build(now_global_position, target_position, target_angle_rpy.z());
-            //}
-            //else
-            //{
-            //    try
-            //    {
-            //        map_set[now_id].get_gimbal_rpy(target_angle_rpy);
-            //    }
-            //    catch (...)
-            //    {
-            //    }
-//
-            //    cmd = position_msg_build(now_global_position, target_position, target_angle_rpy.z());
-            //}
             gimbal = gimbal_msg_build(target_angle_rpy);
             return true;
         }
@@ -277,10 +217,29 @@ private:
     bool finish_init = false;
     Eigen::Matrix3d drone_rotation_matrix;
     bool is_leader = false;
-    //vector<int> path_index;
-    //vector<grid_map> map_set;
     string namespace_;
     bool finish_first_planning = false;
+    Eigen::Vector3d target_position;
+    Eigen::Vector3d target_angle_rpy;
+    bool waypoint_get = false;
+    Eigen::Vector3d now_global_position;
+
+    //for communication
+    bool is_planned = false;
+    Eigen::Vector3d planning_point;
+
+
+
+    nav_msgs::Path path_show;
+    bool odom_get = false;
+
+    Eigen::Vector3d initial_position;
+
+    vector<Boundingbox> assigned_bbox_set;
+
+    int cur_bbox_index = 0;
+    int cur_vertex_index = 0;
+
 
     bool is_Nbr(Eigen::Vector3d test, vector<Eigen::Vector3d> Nbr_point)
     {
@@ -307,24 +266,15 @@ private:
     void insert_point(Eigen::Vector3d point_in)
     {
         global_map.insert_point(point_in);
-        //if (map_set.size() > now_id)
-        //{
-        //    global_map.insert_point(point_in);
-        //    for (auto &element : map_set)
-        //    {
-        //        element.insert_point(point_in);
-        //    }
-        //}
-        //else
-        //{
-        //    global_map.insert_point(point_in);
-        //}
     }
 
     trajectory_msgs::MultiDOFJointTrajectory position_msg_build(Eigen::Vector3d position, Eigen::Vector3d target, double target_yaw)
     {
+        //for communication
         is_planned = true;
         planning_point = target;
+
+
         if (fabs(target_yaw) < M_PI / 2)
         {
             target_yaw = 0;
@@ -393,6 +343,29 @@ private:
         gimbal_msg.angular.z = 0.0; // in velocity control mode, this is the target yaw velocity
         return gimbal_msg;
     }
+    Eigen::Matrix3d Rpy2Rot(Eigen::Vector3d rpy)
+    {
+        Eigen::Matrix3d result = Eigen::Matrix3d::Identity();
+        result = Eigen::AngleAxisd(rpy.z(), Eigen::Vector3d::UnitZ()).toRotationMatrix() * Eigen::AngleAxisd(rpy.y(), Eigen::Vector3d::UnitY()).toRotationMatrix() * Eigen::AngleAxisd(rpy.x(), Eigen::Vector3d::UnitX()).toRotationMatrix();
+        return result;
+    }
+    Eigen::Vector3d Rot2rpy(Eigen::Matrix3d R)
+    {
+
+        Eigen::Vector3d n = R.col(0);
+        Eigen::Vector3d o = R.col(1);
+        Eigen::Vector3d a = R.col(2);
+
+        Eigen::Vector3d rpy(3);
+        double y = atan2(n(1), n(0));
+        double p = atan2(-n(2), n(0) * cos(y) + n(1) * sin(y));
+        double r = atan2(a(0) * sin(y) - a(1) * cos(y), -o(0) * sin(y) + o(1) * cos(y));
+        rpy(0) = r;
+        rpy(1) = p;
+        rpy(2) = y;
+
+        return rpy;
+    }
 
 };
 
@@ -402,8 +375,10 @@ class VixionAgent
 public: 
     VixionAgent(ros::NodeHandlePtr &nh_ptr) : nh_ptr(nh_ptr)
     {
-        TimerCmdOut = nh_ptr->createTimer(ros::Duration(1.0 / 10.0), &VixionAgent::TimerCmdOutCB, this);
-
+        //TimerProbeNbr = nh_ptr->createTimer(ros::Duration(1.0 / 10.0), &VixionAgent::TimerProbeNbrCB, this);
+        TimerPlan     = nh_ptr->createTimer(ros::Duration(1.0 / 2.0),  &VixionAgent::TimerPlanCB,     this);
+        TimerCmdOut   = nh_ptr->createTimer(ros::Duration(1.0 / 10.0), &VixionAgent::TimerCmdOutCB,   this);
+        //TimerViz      = nh_ptr->createTimer(ros::Duration(1.0 / 1.0),  &VixionAgent::TimerVizCB,      this);
 
         task_sub_ = nh_ptr->subscribe("/task_assign" + nh_ptr->getNamespace(), 10, &VixionAgent::TaskCallback, this);
         //com_sub_  = nh_ptr->subscribe("/broadcast" + nh_ptr->getNamespace(), 10, &ComCallback);
@@ -445,6 +420,7 @@ public:
 private:
     ros::NodeHandlePtr nh_ptr;
     ros::Publisher motion_pub_;
+    ros::Publisher gimbal_pub_;
     ros::Subscriber odom_sub_;
     Eigen::Vector3d nextPose;
     ros::Subscriber task_sub_;
@@ -457,7 +433,10 @@ private:
     bool map_initialise = false;
     mainbrain mm;
 
-    ros::Timer TimerCmdOut;  
+    ros::Timer TimerProbeNbr;   // To request updates from neighbours
+    ros::Timer TimerPlan;       // To design a trajectory
+    ros::Timer TimerCmdOut;     // To issue control setpoint to unicon
+    ros::Timer TimerViz;        // To vizualize internal states 
 
     message_filters::Subscriber<sensor_msgs::PointCloud2> *cloud_sub_;
     message_filters::Subscriber<sensor_msgs::PointCloud2> *nbr_sub_;
@@ -483,8 +462,33 @@ private:
 
         Eigen::Vector3d my_position = Eigen::Vector3d(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
         Eigen::Matrix3d R = Eigen::Quaterniond(msg->pose.pose.orientation.w, msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z).toRotationMatrix();
+        mm.update_position(my_position, R);
+    }
+
+    void GimbalCallback(const geometry_msgs::TwistStamped &msg)
+    {
+        if(!map_initialise)
+        {
+            return;
+        }
+        Eigen::Vector3d position = Eigen::Vector3d(msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z);
+        mm.update_gimbal(position);
     }
     
+
+    void TimerPlanCB(const ros::TimerEvent &)
+    {
+        if (!map_initialise)
+        {
+            return;
+        }
+       ////yolo();
+        mm.replan();
+       ////yolo();
+        return;
+    }
+
+
     void TimerCmdOutCB(const ros::TimerEvent &){
         if(!map_initialise) return;
         
