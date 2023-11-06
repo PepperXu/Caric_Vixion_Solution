@@ -6,7 +6,8 @@
     <include file="$(find caric_mission)/launch/run_mbs.launch" />
     <!-- <include file="$(find caric_mission)/launch/run_hangar.launch"/> -->
     <!-- <include file="$(find caric_mission)/launch/run_crane.launch"/> -->
-    <node name="gcs_controller" pkg="vixion_solution" output="screen" type="drone_controller"  />
+    
+    <node name="gcs_controller" pkg="vixion_solution" output="screen" type="gcs_controller"  />
 
     <group ns="jurong">
         

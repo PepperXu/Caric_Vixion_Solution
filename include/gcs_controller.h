@@ -69,17 +69,17 @@ public:
             size_vector = Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2]));
             i = i + 3;
         }
-        while (i < 42)
-        {
-            global_in_out.push_back(Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2])));
-            i = i + 3;
-        }
-        while (i < 45)
-        {
-            global_in_out.push_back(Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2])));
-            i = i + 3;
-        }
-        
+        //while (i < 42)
+        //{
+        //    global_in_out.push_back(Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2])));
+        //    i = i + 3;
+        //}
+        //while (i < 45)
+        //{
+        //    global_in_out.push_back(Eigen::Vector3d(stod(spilited_str[i]), stod(spilited_str[i + 1]), stod(spilited_str[i + 2])));
+        //    i = i + 3;
+        //}
+        //
         xsize = stod(spilited_str[i]);
         i++;
         ysize = stod(spilited_str[i]);
@@ -305,13 +305,13 @@ public:
             result = result + to_string(size_vector[j]) + ",";
         }
 
-        for (int i = 0; i < 2; i++)
-        {
-            for (int j = 0; j < 3; j++)
-            {
-                result = result + to_string(global_in_out[i][j]) + ",";
-            }
-        }
+        //for (int i = 0; i < 2; i++)
+        //{
+        //    for (int j = 0; j < 3; j++)
+        //    {
+        //        result = result + to_string(global_in_out[i][j]) + ",";
+        //    }
+        //}
         result = result + to_string(xsize) + ",";
         result = result + to_string(ysize) + ",";
         result = result + to_string(zsize) + ",";
@@ -333,7 +333,7 @@ private:
     Eigen::Vector3d size_vector;           
     double xsize, ysize, zsize;            
     int id = 0;                            
-    vector<Eigen::Vector3d> global_in_out; 
+    //vector<Eigen::Vector3d> global_in_out; 
     int state = 0;                         
     bool use_x = false;                    
     bool use_y = false;                    
@@ -342,6 +342,9 @@ private:
 
 class gcs{
 public:
+    gcs(){
+
+    }
     gcs(ros::NodeHandlePtr &nh_ptr)
     : nh_ptr(nh_ptr)
     {
@@ -370,6 +373,7 @@ public:
         agent_position_sub= nh_ptr->subscribe<std_msgs::String>("/broadcast/gcs", 10, &gcs::positionCallback, this);
 
         Agent_init_ensure_Timer=nh_ptr->createTimer(ros::Duration(1.0 / 10.0),  &gcs::TimerEnsureCB,     this);
+        message_publish_timer = nh_ptr->createTimer(ros::Duration(1.0 / 10.0),  &gcs::TimerMessageCB,     this);
     }
 
 private:
@@ -381,6 +385,7 @@ private:
     ros::Subscriber bbox_sub;
     ros::Subscriber agent_position_sub;
     ros::Timer Agent_init_ensure_Timer;
+    ros::Timer message_publish_timer;
     double agent_last_update_time;
 
     vector<Boundingbox> bbox_set;
@@ -397,10 +402,11 @@ private:
     vector<vector<Boundingbox>> bbox_set_2_teams;
 
     void bboxCallback(const sensor_msgs::PointCloud::ConstPtr &msg){
-        if(finish_bbox_record||!agent_info_get)
+        if(finish_bbox_record||!agent_info_get||finish_message_generate)
         {
             return;
         }
+        ROS_INFO("get bbox data!");
         sensor_msgs::PointCloud cloud = *msg;
         int num_points = cloud.points.size();
         if (num_points % 8 == 0 && num_points > 8 * bbox_set.size())
@@ -421,15 +427,17 @@ private:
 
 
         task_assignment();
-        publish_task_message();
+        generate_message();
     }
 
     void positionCallback(const std_msgs::String msg){
+        //ROS_INFO_STREAM(msg.data);
         istringstream str(msg.data);
         string type;
         getline(str,type,';');
         if(type=="init_pos")
         {
+            //ROS_INFO("got initial pos!");
             string name_space;
             getline(str,name_space,';');
             string position_str;
@@ -443,6 +451,8 @@ private:
     }
     void TimerEnsureCB(const ros::TimerEvent &)
     {   
+        //string msg = "finish bbox record: " + btos(finish_bbox_record) + ", agent info get: " + btos(agent_info_get) + ", finish message generation: " + btos(finish_message_generate);
+        //ROS_INFO("%s\n",msg.c_str());
         if(agent_info_get)
         {
             return;
@@ -466,26 +476,27 @@ private:
             agent_info_get=true;
         }
     }
-
-
-    void publish_task_message(){
-        if(!finish_message_generate)
-            return;
-        std_msgs::String task;
-        string task_str="";
-
-        task.data=task_str;
-        cmd_pub_.publish(task);
+    void TimerMessageCB(const ros::TimerEvent &){
+        if(finish_message_generate)
+        {
+            std_msgs::String task;
+            task.data=result;
+            cmd_pub_.publish(task);
+            //ROS_INFO("task message sent!");
+        }
     }
+
     void task_assignment(){
+        if(!finish_bbox_record) return; 
         bbox_set_2_teams.resize(2);
         for(int i=0;i<bbox_set.size();i++){
-            if(i<bbox_set.size()){
+            if(i<bbox_set.size()/2){
                 bbox_set_2_teams[0].push_back(bbox_set[i]);
             } else {
                 bbox_set_2_teams[1].push_back(bbox_set[i]);
             }
         }
+        ROS_INFO("task assigned!");
 
     }
 
@@ -507,20 +518,24 @@ private:
         return result;
     }
 
-    void generate_massage()
+    void generate_message()
     {
+        ROS_INFO("start generating messages!");
         result="";
-        for (int i = 0; i < 2; i++)
+        for (int i = 0; i < bbox_set_2_teams.size(); i++)
         {
             for (int j = 0; j < bbox_set_2_teams[i].size(); j++)
             {
-                result = result + bbox_set_2_teams[i][j].generate_string_version();
-                result = result + ";";
+                result += bbox_set_2_teams[i][j].generate_string_version()+ ";";
             }
-            result = result + "|";
+            result += "|";
         }
         finish_message_generate=true;
     }
 
+    string btos(bool x){
+        if(x) return "true";
+        return "false";
+    }
 
 };

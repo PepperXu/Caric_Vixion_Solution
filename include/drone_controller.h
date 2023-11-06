@@ -156,12 +156,14 @@ public:
         }
 
         if (namespace_ == "/jurong" || namespace_ == "/raffles"){
+            ROS_INFO("replanning!");
             Eigen::Vector3d target = assigned_bbox_set[cur_bbox_index].getVertices()[cur_vertex_index];
             bool flag = false;
-            global_map.Astar_local(target, namespace_, namespace_, flag, false);
+            global_map.Astar_local(target, namespace_, namespace_, flag, true);
             waypoint_get = update_target_waypoint();
             path_show = global_map.get_path_show();
-            if(flag){
+            ROS_INFO_STREAM("Flag: " + btos(flag));
+            if(global_map.get_index(now_global_position) == global_map.get_index(target)){
                 if(cur_vertex_index == 7){
                     if(cur_bbox_index == (assigned_bbox_set.size() - 1)){
                         return;
@@ -180,7 +182,9 @@ public:
     {
         if (odom_get && finish_init)
         {
+            finish_first_planning = true;
             target_position = global_map.get_next_point(true);
+            ROS_INFO("%s, %s, %s", to_string(target_position[0]).c_str(), to_string(target_position[1]).c_str(), to_string(target_position[2]).c_str());
             return true;
         }
         else
@@ -197,6 +201,7 @@ public:
         }
         if (waypoint_get)
         {
+            ROS_INFO("waypoint get!");
             global_map.get_gimbal_rpy(target_angle_rpy);
             cmd = position_msg_build(now_global_position, target_position, target_angle_rpy.z());
             gimbal = gimbal_msg_build(target_angle_rpy);
@@ -366,6 +371,10 @@ private:
 
         return rpy;
     }
+    string btos(bool x){
+        if(x) return "true";
+        return "false";
+    }
 
 };
 
@@ -381,7 +390,7 @@ public:
         //TimerViz      = nh_ptr->createTimer(ros::Duration(1.0 / 1.0),  &VixionAgent::TimerVizCB,      this);
 
         task_sub_ = nh_ptr->subscribe("/task_assign" + nh_ptr->getNamespace(), 10, &VixionAgent::TaskCallback, this);
-        //com_sub_  = nh_ptr->subscribe("/broadcast" + nh_ptr->getNamespace(), 10, &ComCallback);
+        com_sub_  = nh_ptr->subscribe("/broadcast" + nh_ptr->getNamespace(), 10, &VixionAgent::ComCallback, this);
         client    = nh_ptr->serviceClient<caric_mission::CreatePPComTopic>("/create_ppcom_topic");
         communication_pub_ = nh_ptr->advertise<std_msgs::String>("/broadcast", 10);
 
@@ -406,8 +415,9 @@ public:
         }
         communication_initialise = true;
 
-        motion_pub_ = nh_ptr->advertise<trajectory_msgs::MultiDOFJointTrajectory>("/firefly/command/trajectory", 1000);
-        odom_sub_ = nh_ptr->subscribe("/firefly/ground_truth/odometry", 10, &VixionAgent::OdomCallback, this);
+        odom_sub_        = nh_ptr->subscribe("/ground_truth/odometry", 10, &VixionAgent::OdomCallback, this);
+        gimbal_sub_      = nh_ptr->subscribe("/firefly/gimbal", 10, &VixionAgent::GimbalCallback, this);
+        
 
         cloud_sub_       = new message_filters::Subscriber<sensor_msgs::PointCloud2>(*nh_ptr, "/cloud_inW", 10);
         nbr_sub_         = new message_filters::Subscriber<sensor_msgs::PointCloud2>(*nh_ptr, "/nbr_odom_cloud", 10);
@@ -415,6 +425,9 @@ public:
         sync_            = new message_filters::Synchronizer<MySyncPolicy>(MySyncPolicy(10), *cloud_sub_, *nbr_sub_, *odom_filter_sub_);
 
         sync_->registerCallback(boost::bind(&VixionAgent::MapCallback, this, _1, _2, _3));
+
+        motion_pub_ = nh_ptr->advertise<trajectory_msgs::MultiDOFJointTrajectory>("/firefly/command/trajectory", 1);
+        gimbal_pub_     = nh_ptr->advertise<geometry_msgs::Twist>("/firefly/command/gimbal", 1);
     }
 
 private:
@@ -422,9 +435,11 @@ private:
     ros::Publisher motion_pub_;
     ros::Publisher gimbal_pub_;
     ros::Subscriber odom_sub_;
+    ros::Subscriber gimbal_sub_;
     Eigen::Vector3d nextPose;
     ros::Subscriber task_sub_;
     ros::Subscriber com_sub_;
+    string pre_task;
     caric_mission::CreatePPComTopic srv; // This PPcom create for communication between neibors;
     ros::ServiceClient client;           // The client to create ppcom
     ros::Publisher communication_pub_; 
@@ -463,6 +478,7 @@ private:
         Eigen::Vector3d my_position = Eigen::Vector3d(msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
         Eigen::Matrix3d R = Eigen::Quaterniond(msg->pose.pose.orientation.w, msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z).toRotationMatrix();
         mm.update_position(my_position, R);
+        //ROS_INFO("position updated!");
     }
 
     void GimbalCallback(const geometry_msgs::TwistStamped &msg)
@@ -473,6 +489,7 @@ private:
         }
         Eigen::Vector3d position = Eigen::Vector3d(msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z);
         mm.update_gimbal(position);
+        //ROS_INFO("gimbal updated!");
     }
     
 
@@ -496,6 +513,7 @@ private:
         geometry_msgs::Twist gimbal_msg;
         if (mm.get_cmd(position_cmd, gimbal_msg))
         {
+            ROS_INFO("Motion message get!");
             position_cmd.header.stamp = ros::Time::now();
             motion_pub_.publish(position_cmd);
             gimbal_pub_.publish(gimbal_msg);
@@ -505,12 +523,19 @@ private:
     }
     
     void TaskCallback(const std_msgs::String &msg){
-        map_initialise = true;
+        if (pre_task == msg.data && pre_task != "")
+        {
+            map_initialise = true;
+            return;
+        }
+        ROS_INFO("initializing brain");
         mm = mainbrain(msg.data, nh_ptr->getNamespace());
+        pre_task = msg.data;
+        map_initialise = true;
+        ROS_INFO("map initialized!");
     }
     
-    void ComCallback(){
-    
+    void ComCallback(const std_msgs::String msg){
     } 
 
     void MapCallback(const sensor_msgs::PointCloud2ConstPtr &cloud,
