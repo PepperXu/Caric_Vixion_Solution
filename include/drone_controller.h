@@ -152,18 +152,25 @@ public:
     {
         if (!finish_init)
         {
+            ROS_INFO_STREAM(namespace_ + " planning initializing!");
             return;
         }
 
         if (namespace_ == "/jurong" || namespace_ == "/raffles"){
-            ROS_INFO("replanning!");
+            ROS_INFO_STREAM(namespace_ + " replanning!");
             Eigen::Vector3d target = assigned_bbox_set[cur_bbox_index].getVertices()[cur_vertex_index];
             bool flag = false;
-            global_map.Astar_local(target, namespace_, namespace_, flag, true);
+            ROS_INFO_STREAM(namespace_ + " Astar starting!");
+            global_map.Astar_local(target, namespace_, namespace_, flag, false);
+            if(!flag)
+                ROS_INFO_STREAM(namespace_ + " Astar succeed!");
+            else
+                ROS_INFO_STREAM(namespace_ + " Astar failed!");              
             waypoint_get = update_target_waypoint();
             path_show = global_map.get_path_show();
-            ROS_INFO_STREAM("Flag: " + btos(flag));
+            
             if(global_map.get_index(now_global_position) == global_map.get_index(target)){
+                ROS_INFO_STREAM(namespace_ + " moving to next target!");
                 if(cur_vertex_index == 7){
                     if(cur_bbox_index == (assigned_bbox_set.size() - 1)){
                         return;
@@ -173,7 +180,11 @@ public:
                 }
                 cur_vertex_index++;
             }
+        } else {
+            ROS_INFO_STREAM(namespace_ + " not involved in planning!");
         }
+
+        ROS_INFO_STREAM(namespace_ + " replanning finished!");
     }
 
 
@@ -201,7 +212,7 @@ public:
         }
         if (waypoint_get)
         {
-            ROS_INFO("waypoint get!");
+            ROS_INFO_STREAM(namespace_ + " waypoint get!");
             global_map.get_gimbal_rpy(target_angle_rpy);
             cmd = position_msg_build(now_global_position, target_position, target_angle_rpy.z());
             gimbal = gimbal_msg_build(target_angle_rpy);
@@ -211,6 +222,10 @@ public:
         {
             return false;
         }
+    }
+
+    void receive_communication(string msg){
+
     }
 
     
@@ -396,6 +411,7 @@ public:
 
         string str = nh_ptr->getNamespace();
         str.erase(0, 1);
+        namespace_ = str;
         srv.request.source = str;
         srv.request.targets.push_back("all");
         srv.request.topic_name = "/broadcast";
@@ -417,6 +433,7 @@ public:
 
         odom_sub_        = nh_ptr->subscribe("/ground_truth/odometry", 10, &VixionAgent::OdomCallback, this);
         gimbal_sub_      = nh_ptr->subscribe("/firefly/gimbal", 10, &VixionAgent::GimbalCallback, this);
+        interest_point_sub_ = nh_ptr->subscribe<sensor_msgs::PointCloud2>("/detected_interest_points", 10, &VixionAgent::POICallback, this);
         
 
         cloud_sub_       = new message_filters::Subscriber<sensor_msgs::PointCloud2>(*nh_ptr, "/cloud_inW", 10);
@@ -436,6 +453,7 @@ private:
     ros::Publisher gimbal_pub_;
     ros::Subscriber odom_sub_;
     ros::Subscriber gimbal_sub_;
+    ros::Subscriber interest_point_sub_;
     Eigen::Vector3d nextPose;
     ros::Subscriber task_sub_;
     ros::Subscriber com_sub_;
@@ -447,6 +465,7 @@ private:
     bool communication_initialise = false;
     bool map_initialise = false;
     mainbrain mm;
+    string namespace_;
 
     ros::Timer TimerProbeNbr;   // To request updates from neighbours
     ros::Timer TimerPlan;       // To design a trajectory
@@ -491,6 +510,18 @@ private:
         mm.update_gimbal(position);
         //ROS_INFO("gimbal updated!");
     }
+
+    void POICallback(const sensor_msgs::PointCloud2ConstPtr &msg){
+        if(!map_initialise)
+        {
+            return;
+        }
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::fromROSMsg(*msg, *cloud_cloud);
+        int num_points = cloud_cloud->points.size();
+        ROS_INFO_STREAM(namespace_ + " detected " + to_string(num_points) + " points!");
+
+    }
     
 
     void TimerPlanCB(const ros::TimerEvent &)
@@ -513,7 +544,7 @@ private:
         geometry_msgs::Twist gimbal_msg;
         if (mm.get_cmd(position_cmd, gimbal_msg))
         {
-            ROS_INFO("Motion message get!");
+            ROS_INFO_STREAM(namespace_ + " Motion message get!");
             position_cmd.header.stamp = ros::Time::now();
             motion_pub_.publish(position_cmd);
             gimbal_pub_.publish(gimbal_msg);
@@ -536,6 +567,15 @@ private:
     }
     
     void ComCallback(const std_msgs::String msg){
+        if(!map_initialise)
+        {
+            return;
+        }
+        mm.receive_communication(msg.data);
+        if (!serviceAvailable || !communication_initialise)
+        {
+            return;
+        }
     } 
 
     void MapCallback(const sensor_msgs::PointCloud2ConstPtr &cloud,

@@ -20,6 +20,7 @@
             <remap from="/nbr_odom_cloud"              to="/$(arg namespace)/nbr_odom_cloud" />
             <remap from="/firefly/gimbal"              to="/$(arg namespace)/gimbal" />
             <remap from="/ground_truth/odometry"       to="/$(arg namespace)/ground_truth/odometry" />
+            <remap from="/detected_interest_points"    to="/$(arg namespace)/detected_interest_points" />
 
             <!-- Control outputs -->
             <remap from="/firefly/command/gimbal"      to="/$(arg namespace)/command/gimbal" />
@@ -44,6 +45,7 @@
             <remap from="/nbr_odom_cloud"              to="/$(arg namespace)/nbr_odom_cloud" />
             <remap from="/firefly/gimbal"              to="/$(arg namespace)/gimbal" />
             <remap from="/ground_truth/odometry"       to="/$(arg namespace)/ground_truth/odometry" />
+            <remap from="/detected_interest_points"    to="/$(arg namespace)/detected_interest_points" />
 
             <!-- Control outputs -->
             <remap from="/firefly/command/gimbal"      to="/$(arg namespace)/command/gimbal" />
@@ -68,6 +70,7 @@
             <remap from="/nbr_odom_cloud"              to="/$(arg namespace)/nbr_odom_cloud" />
             <remap from="/firefly/gimbal"              to="/$(arg namespace)/gimbal" />
             <remap from="/ground_truth/odometry"       to="/$(arg namespace)/ground_truth/odometry" />
+            <remap from="/detected_interest_points"    to="/$(arg namespace)/detected_interest_points" />
 
             <!-- Control outputs -->
             <remap from="/firefly/command/gimbal"      to="/$(arg namespace)/command/gimbal" />
@@ -92,6 +95,7 @@
             <remap from="/nbr_odom_cloud"              to="/$(arg namespace)/nbr_odom_cloud" />
             <remap from="/firefly/gimbal"              to="/$(arg namespace)/gimbal" />
             <remap from="/ground_truth/odometry"       to="/$(arg namespace)/ground_truth/odometry" />
+            <remap from="/detected_interest_points"    to="/$(arg namespace)/detected_interest_points" />
 
             <!-- Control outputs -->
             <remap from="/firefly/command/gimbal"      to="/$(arg namespace)/command/gimbal" />
@@ -116,6 +120,7 @@
             <remap from="/nbr_odom_cloud"              to="/$(arg namespace)/nbr_odom_cloud" />
             <remap from="/firefly/gimbal"              to="/$(arg namespace)/gimbal" />
             <remap from="/ground_truth/odometry"       to="/$(arg namespace)/ground_truth/odometry" />
+            <remap from="/detected_interest_points"    to="/$(arg namespace)/detected_interest_points" />
 
             <!-- Control outputs -->
             <remap from="/firefly/command/gimbal"      to="/$(arg namespace)/command/gimbal" />
