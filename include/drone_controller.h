@@ -59,6 +59,8 @@ public:
                 for(int i=0;i<splited_splited_str.size();i++){
                     Boundingbox bbox = Boundingbox(splited_splited_str[i]);
                     assigned_bbox_set.push_back(bbox);
+                    trajectory_planning_surface(bbox);
+                    local_maps.push_back(grid_map(bbox, grid_size, 1, {"/jurong"}));
                 }
             }
             else{
@@ -72,6 +74,8 @@ public:
                 for(int i=0;i<splited_splited_str.size();i++){
                     Boundingbox bbox = Boundingbox(splited_splited_str[i]);
                     assigned_bbox_set.push_back(bbox);
+                    trajectory_planning_surface(bbox);
+                    local_maps.push_back(grid_map(bbox, grid_size, 1, {"/raffles"}));
                 }
             }
         }
@@ -128,7 +132,8 @@ public:
         Eigen::Vector3d rpy = Rot2rpy(now_rot);
         rpy.x() = 0;
         global_map.update_gimbal(rpy, false);
-
+        if(cur_vertex_index != 0)
+            local_maps[cur_bbox_index].update_gimbal(rpy, false);
     }
 
     void update_position(Eigen::Vector3d point, Eigen::Matrix3d rotation)
@@ -144,7 +149,10 @@ public:
         {
             return;
         }
+        
         global_map.update_position(point);
+        if(cur_vertex_index != 0)
+            local_maps[cur_bbox_index].update_position(point);
         odom_get = true;
     }
     
@@ -158,27 +166,47 @@ public:
 
         if (namespace_ == "/jurong" || namespace_ == "/raffles"){
             ROS_INFO_STREAM(namespace_ + " replanning!");
-            Eigen::Vector3d target = assigned_bbox_set[cur_bbox_index].getVertices()[cur_vertex_index];
+            //surface 0: 0, 1, 4, 5; surface 1: 1, 2, 5, 6; surface 2: 2, 3, 6, 7; surface 3: 3, 0, 7, 4
+
+            Eigen::Vector3d target = bbox_surface_trajectories[cur_bbox_index][cur_surface_index][cur_vertex_index];
+            //assigned_bbox_set[cur_bbox_index].getVertices()[cur_vertex_index];
             bool flag = false;
             ROS_INFO_STREAM(namespace_ + " Astar starting!");
-            global_map.Astar_local(target, namespace_, namespace_, flag, false);
+            if(cur_vertex_index == 0)
+                global_map.Astar_local(target, namespace_, namespace_, flag, false);
+            else
+                local_maps[cur_bbox_index].Astar_local(target, namespace_, namespace_, flag, false);
             if(!flag)
                 ROS_INFO_STREAM(namespace_ + " Astar succeed!");
-            else
-                ROS_INFO_STREAM(namespace_ + " Astar failed!");              
+            else 
+                ROS_INFO_STREAM(namespace_ + " Astar failed!");  
             waypoint_get = update_target_waypoint();
-            path_show = global_map.get_path_show();
-            
-            if(global_map.get_index(now_global_position) == global_map.get_index(target)){
+            if(cur_vertex_index == 0)
+                path_show = global_map.get_path_show();
+            else
+                path_show = local_maps[cur_bbox_index].get_path_show();
+            if(global_map.get_index(now_global_position) == global_map.get_index(target) || flag){
                 ROS_INFO_STREAM(namespace_ + " moving to next target!");
-                if(cur_vertex_index == 7){
-                    if(cur_bbox_index == (assigned_bbox_set.size() - 1)){
-                        return;
-                    }
-                    cur_bbox_index++;
-                    cur_vertex_index = 0;
-                }
                 cur_vertex_index++;
+                if(cur_vertex_index >= bbox_surface_trajectories[cur_bbox_index][cur_surface_index].size()){
+                    cur_vertex_index = 0;
+                    cur_surface_index++;
+                    if(cur_surface_index >= 4){
+                        cur_surface_index = 0;
+                        cur_bbox_index++;
+                        if(cur_bbox_index >= assigned_bbox_set.size()){
+                            cur_bbox_index = 0;
+                        }
+                    }
+                }
+                //if(cur_vertex_index == 7){
+                //    if(cur_bbox_index == (assigned_bbox_set.size() - 1)){
+                //        return;
+                //    }
+                //    cur_bbox_index++;
+                //    cur_vertex_index = 0;
+                //}
+                //cur_vertex_index++;
             }
         } else {
             ROS_INFO_STREAM(namespace_ + " not involved in planning!");
@@ -194,7 +222,10 @@ public:
         if (odom_get && finish_init)
         {
             finish_first_planning = true;
-            target_position = global_map.get_next_point(true);
+            if(cur_vertex_index == 0)
+                target_position = global_map.get_next_point(true);
+            else
+                target_position = local_maps[cur_bbox_index].get_next_point(true);
             ROS_INFO("%s, %s, %s", to_string(target_position[0]).c_str(), to_string(target_position[1]).c_str(), to_string(target_position[2]).c_str());
             return true;
         }
@@ -212,10 +243,17 @@ public:
         }
         if (waypoint_get)
         {
-            ROS_INFO_STREAM(namespace_ + " waypoint get!");
-            global_map.get_gimbal_rpy(target_angle_rpy);
-            cmd = position_msg_build(now_global_position, target_position, target_angle_rpy.z());
-            gimbal = gimbal_msg_build(target_angle_rpy);
+            //ROS_INFO_STREAM(namespace_ + " waypoint get!");
+            //if(cur_vertex_index == 0)
+            //    global_map.get_gimbal_rpy(target_angle_rpy);
+            //else
+            //    local_maps[cur_bbox_index].get_gimbal_rpy(target_angle_rpy);
+            
+            Vector3d target_angle_gimbal = get_gimbal_rpy_as_surface_normal();
+            
+            cmd = position_msg_build(now_global_position, target_position, get_yaw_as_surface_normal());
+            gimbal = gimbal_msg_build(target_angle_gimbal);
+
             return true;
         }
         else
@@ -234,6 +272,7 @@ private:
     Eigen::Vector3d grid_size;
     double safe_distance = 2.5;
     grid_map global_map;
+    vector<grid_map> local_maps;
     bool finish_init = false;
     Eigen::Matrix3d drone_rotation_matrix;
     bool is_leader = false;
@@ -259,7 +298,73 @@ private:
 
     int cur_bbox_index = 0;
     int cur_vertex_index = 0;
+    int cur_surface_index = 0;
+    vector<vector<vector<Eigen::Vector3d>>> bbox_surface_trajectories;
 
+
+    void trajectory_planning_surface(Boundingbox bbox){
+        
+        vector<vector<Eigen::Vector3d>> surface_trajectories;
+        for(int i = 0; i < 4; i++){
+            vector<Eigen::Vector3d> trajectory;
+            Vector3d v0 = bbox.getVertices()[i%4];
+            Vector3d v1 = bbox.getVertices()[(i+1)%4];
+            Vector3d dist10= v1 - v0;
+            Vector3d v2 = bbox.getVertices()[i%4+4];
+            Vector3d v3 = bbox.getVertices()[(i+1)%4+4];
+            bool flipped = false;
+            for(Vector3d v = v0; v.z() <= v2.z(); v += Vector3d(0,0,2.0)){
+                if(!flipped){
+                    trajectory.push_back(v);
+                    trajectory.push_back(v+dist10);
+                } else {
+                    trajectory.push_back(v+dist10);
+                    trajectory.push_back(v);
+                }
+                flipped = !flipped;
+            }
+            surface_trajectories.push_back(trajectory);
+        }  
+        bbox_surface_trajectories.push_back(surface_trajectories);
+        
+    }
+
+
+    double get_yaw_as_surface_normal(){
+        Vector3d dir = assigned_bbox_set[cur_bbox_index].getVertices()[(cur_surface_index + 3)%4] - assigned_bbox_set[cur_bbox_index].getVertices()[cur_surface_index];
+
+        Eigen::Quaterniond quaternion;
+        quaternion.setFromTwoVectors(Eigen::Vector3d(1, 0, 0), dir);
+        Eigen::Matrix3d rotation_matrix_here = quaternion.toRotationMatrix();
+        Eigen::Vector3d rpy = Rot2rpy(rotation_matrix_here);
+        return rpy.z();
+    }
+
+    Eigen::Vector3d get_gimbal_rpy_as_surface_normal(){
+        Vector3d dir = assigned_bbox_set[cur_bbox_index].getVertices()[(cur_surface_index + 3)%4] - assigned_bbox_set[cur_bbox_index].getVertices()[cur_surface_index];
+        
+        Vector3d localDir = drone_rotation_matrix.inverse()*dir;
+
+        Eigen::Quaterniond quaternion;
+        quaternion.setFromTwoVectors(Eigen::Vector3d(1, 0, 0), localDir);
+        Eigen::Matrix3d rotation_matrix_here = quaternion.toRotationMatrix();
+        Eigen::Vector3d rpy = Rot2rpy(rotation_matrix_here);
+        if (abs(rpy.x() + rpy.z()) < 1e-6 || abs(rpy.x() - rpy.z()) < 1e-6)
+        {
+            rpy.x() = 0;
+            rpy.z() = 0;
+        }
+
+        if (rpy.y() > M_PI * 4 / 9)
+        {
+            rpy.y() = M_PI * 4 / 9;
+        }
+        else if (rpy.y() < -M_PI * 4 / 9)
+        {
+            rpy.y() = -M_PI * 4 / 9;
+        }
+        return rpy;
+    }
 
     bool is_Nbr(Eigen::Vector3d test, vector<Eigen::Vector3d> Nbr_point)
     {
@@ -286,6 +391,10 @@ private:
     void insert_point(Eigen::Vector3d point_in)
     {
         global_map.insert_point(point_in);
+        for (auto &element : local_maps)
+        {
+            element.insert_point(point_in);
+        }
     }
 
     trajectory_msgs::MultiDOFJointTrajectory position_msg_build(Eigen::Vector3d position, Eigen::Vector3d target, double target_yaw)
@@ -295,10 +404,10 @@ private:
         planning_point = target;
 
 
-        if (fabs(target_yaw) < M_PI / 2)
-        {
-            target_yaw = 0;
-        }
+        //if (fabs(target_yaw) < M_PI / 2)
+        //{
+        //    target_yaw = 0;
+        //}
         trajectory_msgs::MultiDOFJointTrajectory trajset_msg;
         trajectory_msgs::MultiDOFJointTrajectoryPoint trajpt_msg;
         trajset_msg.header.frame_id = "world";
@@ -348,15 +457,16 @@ private:
     {
         geometry_msgs::Twist gimbal_msg;
         gimbal_msg.linear.x = 1.0; // setting linear.x to -1.0 enables velocity control mode.
-        if (fabs(target_euler_rpy.z()) < M_PI / 2)
+        gimbal_msg.linear.y = target_euler_rpy.y(); // if linear.x set to 1.0, linear.y and linear.z are the
+        gimbal_msg.linear.z = target_euler_rpy.z(); // target pitch and yaw angle, respectively.
+        
+        if (target_euler_rpy.z() < -M_PI / 2)
         {
-            gimbal_msg.linear.y = target_euler_rpy.y(); // if linear.x set to 1.0, linear,y and linear.z are the
-            gimbal_msg.linear.z = target_euler_rpy.z(); // target pitch and yaw angle, respectively.
+            gimbal_msg.linear.z = -M_PI / 2; // if linear.x set to 1.0, linear.y and linear.z are the target pitch and yaw angle, respectively.
         }
-        else
+        if(target_euler_rpy.z() > M_PI / 2)
         {
-            gimbal_msg.linear.y = target_euler_rpy.y(); // if linear.x set to 1.0, linear,y and linear.z are the
-            gimbal_msg.linear.z = 0;                    // target pitch and yaw angle, respectively.
+            gimbal_msg.linear.z = M_PI / 2; // if linear.x set to 1.0, linear.y and linear.z are the target pitch and yaw angle, respectively.
         }
         gimbal_msg.angular.x = 0.0;
         gimbal_msg.angular.y = 0.0; // in velocity control mode, this is the target pitch velocity
@@ -519,7 +629,7 @@ private:
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cloud(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::fromROSMsg(*msg, *cloud_cloud);
         int num_points = cloud_cloud->points.size();
-        ROS_INFO_STREAM(namespace_ + " detected " + to_string(num_points) + " points!");
+        //ROS_INFO_STREAM(namespace_ + " detected " + to_string(num_points) + " points!");
 
     }
     
@@ -544,7 +654,7 @@ private:
         geometry_msgs::Twist gimbal_msg;
         if (mm.get_cmd(position_cmd, gimbal_msg))
         {
-            ROS_INFO_STREAM(namespace_ + " Motion message get!");
+            //ROS_INFO_STREAM(namespace_ + " Motion message get!");
             position_cmd.header.stamp = ros::Time::now();
             motion_pub_.publish(position_cmd);
             gimbal_pub_.publish(gimbal_msg);

@@ -1619,6 +1619,8 @@ private:
     {
         return atan2(v1.cross(v2).norm(), v1.transpose() * v2);
     }
+
+    //This function somehow turns the direction of next search target in grid, to the rpy (roll pitch raw) in that target location. However, it requires the bounding box to be aligned to the surface of the building.
     Eigen::Vector3d get_rpy_limited_global(Eigen::Vector3d target_direction)
     {
         Eigen::Vector3d global_target_direction = rotation_matrix_inv * target_direction;
