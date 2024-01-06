@@ -413,10 +413,10 @@ public:
             }
             else
             {
-                if (fabs(ros::Time::now().toSec() - local_dict[leader_name].time) < 1)
-                {
-                    path_tamp.pop_front();
-                }
+                //if (fabs(ros::Time::now().toSec() - local_dict[leader_name].time) < 1)
+                //{
+                //    path_tamp.pop_front();
+                //}
                 flag = false;
                 path_final_global = target;
                 path_index = path_tamp;

@@ -24,6 +24,152 @@
 #include "grid_map.h"
 
 
+struct info
+{
+    bool get_info = false;
+    double message_time = 0;
+    Eigen::Vector3d global_point;
+    list<Eigen::Vector3d> global_path = {};
+    int state = 0;
+    int priority = 0;
+};
+
+class info_agent
+{
+public:
+    
+    info_agent()
+    {
+        namelist = {"/jurong", "/raffles", "/changi", "/sentosa", "/nanyang"};
+        Agent_dict["/jurong"] = {false, 0, Eigen::Vector3d(0, 0, 1), {}, 0, 5};
+        Agent_dict["/raffles"] = {false, 0, Eigen::Vector3d(0, 0, 2), {}, 0, 4};
+        Agent_dict["/changi"] = {false, 0, Eigen::Vector3d(0, 0, 3), {}, 0, 3};
+        Agent_dict["/sentosa"] = {false, 0, Eigen::Vector3d(0, 0, 4), {}, 0, 2};
+        Agent_dict["/nanyang"] = {false, 0, Eigen::Vector3d(0, 0, 5), {}, 0, 1};
+    }
+    
+    info_agent(vector<string> teammate)
+    {
+        namelist = {"/jurong", "/raffles", "/changi", "/sentosa", "/nanyang"};
+        Agent_dict["/jurong"] = {false, 0, Eigen::Vector3d(0, 0, 1), {}, 0, 5};
+        Agent_dict["/raffles"] = {false, 0, Eigen::Vector3d(0, 0, 2), {}, 0, 4};
+        Agent_dict["/changi"] = {false, 0, Eigen::Vector3d(0, 0, 3), {}, 0, 3};
+        Agent_dict["/sentosa"] = {false, 0, Eigen::Vector3d(0, 0, 4), {}, 0, 2};
+        Agent_dict["/nanyang"] = {false, 0, Eigen::Vector3d(0, 0, 5), {}, 0, 1};
+        for (int i = 0; i < teammate.size(); i++)
+        {
+            if (teammate[i] == "/jurong")
+            {
+                leader = "/jurong";
+            }
+            else if (teammate[i] == "/raffles")
+            {
+                leader = "/raffles";
+            }
+        }
+    }
+    
+    int get_leader_state()
+    {
+        return Agent_dict[leader].state;
+    }
+    
+    string get_leader()
+    {
+        return leader;
+    }
+    
+    bool get_leader_com(){
+        return leader_com_established;
+    }
+
+    void get_leader_position(Eigen::Vector3d &target)
+    {
+        // cout<<"leader:"<<leader<<endl;
+        target = Agent_dict[leader].global_point;
+    }
+    
+    void update_state(string name, int state_in)
+    {
+
+        Agent_dict[name].state = state_in;
+    }
+    
+    void reset_position_path(istringstream &str)
+    {
+        string name;
+        getline(str, name, ';');
+        if (name != "/jurong" && name != "/raffles" && name != "/changi" && name != "/sentosa" && name != "/nanyang")
+        {
+            return;
+        }
+        else
+        {
+            if(name == leader){
+                leader_com_established = true;
+            }
+            string position_str;
+            getline(str, position_str, ';');
+            info info_temp;
+            info_temp.get_info = true;
+            info_temp.global_point = str2point(position_str);
+            string path_point;
+            while (getline(str, path_point, ';'))
+            {
+                info_temp.global_path.push_back(str2point(path_point));
+            }
+            info_temp.message_time = ros::Time::now().toSec();
+            info_temp.state = Agent_dict[name].state;
+            info_temp.priority = Agent_dict[name].priority;
+            Agent_dict[name] = info_temp;
+        }
+    }
+
+private:
+    
+    list<string> namelist;
+    // list<Eigen::Vector3d> path_list;
+    
+    string leader;
+    
+    map<string, info> Agent_dict;
+    bool leader_com_established = false;
+    
+    void cout_name(string name)
+    {
+        cout << name << endl;
+        info info_in = Agent_dict[name];
+        cout << "Priority:" << info_in.priority << endl;
+        cout << "State:" << info_in.state << endl;
+        cout << "Get info:" << info_in.get_info << endl;
+        cout << "Time:" << info_in.message_time << endl;
+        cout << "Global position:" << info_in.global_point.transpose() << endl;
+        cout << "Path point:" << endl;
+        for (auto &point : info_in.global_path)
+        {
+            cout << "node:" << point.transpose() << endl;
+        }
+        cout << endl;
+    }
+    
+    Eigen::Vector3d str2point(string input)
+    {
+        Eigen::Vector3d result;
+        std::vector<string> value;
+        boost::split(value, input, boost::is_any_of(","));
+        // cout<<input<<endl;
+        if (value.size() == 3)
+        {
+            result = Eigen::Vector3d(stod(value[0]), stod(value[1]), stod(value[2]));
+        }
+        else
+        {
+            cout << input << endl;
+            cout << "error use str2point 2" << endl;
+        }
+        return result;
+    }
+};
 
 class mainbrain{
 public:
@@ -48,7 +194,7 @@ public:
         if(splited_str.size() < 2){
             cout << "Bbox Assigned Error!!!" << endl;
         } else {
-            if(namespace_=="/jurong"){
+            if(namespace_=="/jurong" || namespace_=="/changi"){
                 vector<string> splited_splited_str;
                 std::istringstream iss(splited_str[0]);
                 std::string substring;
@@ -59,11 +205,15 @@ public:
                 for(int i=0;i<splited_splited_str.size();i++){
                     Boundingbox bbox = Boundingbox(splited_splited_str[i]);
                     assigned_bbox_set.push_back(bbox);
-                    trajectory_planning_surface(bbox);
-                    local_maps.push_back(grid_map(bbox, grid_size, 1, {"/jurong"}));
+
+                    local_maps.push_back(grid_map(bbox, grid_size, 1, {"/jurong", "/changi"}));
                 }
+                trajectory_planning_bbox_set();
+                Teamid = 0;
+                teammates_name = {"/jurong", "/changi"};
+                info_mannager = info_agent(teammates_name);
             }
-            else{
+            else if(namespace_=="/raffles" || namespace_=="/sentosa" || namespace_=="/nanyang"){
                 vector<string> splited_splited_str;
                 std::istringstream iss(splited_str[1]);
                 std::string substring;
@@ -74,9 +224,14 @@ public:
                 for(int i=0;i<splited_splited_str.size();i++){
                     Boundingbox bbox = Boundingbox(splited_splited_str[i]);
                     assigned_bbox_set.push_back(bbox);
-                    trajectory_planning_surface(bbox);
-                    local_maps.push_back(grid_map(bbox, grid_size, 1, {"/raffles"}));
+                    local_maps.push_back(grid_map(bbox, grid_size, 1, {"/raffles", "/sentosa", "/nanyang"}));
                 }
+                trajectory_planning_bbox_set();
+                Teamid = 1;
+                teammates_name =  {"/raffles", "/sentosa", "/nanyang"};
+                info_mannager = info_agent(teammates_name);
+            } else {
+                ROS_ERROR("namespace not found!");
             }
         }
         finish_init = true;
@@ -133,7 +288,7 @@ public:
         rpy.x() = 0;
         global_map.update_gimbal(rpy, false);
         if(cur_vertex_index != 0)
-            local_maps[cur_bbox_index].update_gimbal(rpy, false);
+            local_maps[cur_actual_bbox_index].update_gimbal(rpy, false);
     }
 
     void update_position(Eigen::Vector3d point, Eigen::Matrix3d rotation)
@@ -152,7 +307,7 @@ public:
         
         global_map.update_position(point);
         if(cur_vertex_index != 0)
-            local_maps[cur_bbox_index].update_position(point);
+            local_maps[cur_actual_bbox_index].update_position(point);
         odom_get = true;
     }
     
@@ -165,51 +320,47 @@ public:
         }
 
         if (namespace_ == "/jurong" || namespace_ == "/raffles"){
-            ROS_INFO_STREAM(namespace_ + " replanning!");
-            //surface 0: 0, 1, 4, 5; surface 1: 1, 2, 5, 6; surface 2: 2, 3, 6, 7; surface 3: 3, 0, 7, 4
-
-            Eigen::Vector3d target = bbox_surface_trajectories[cur_bbox_index][cur_surface_index][cur_vertex_index];
-            //assigned_bbox_set[cur_bbox_index].getVertices()[cur_vertex_index];
-            bool flag = false;
-            ROS_INFO_STREAM(namespace_ + " Astar starting!");
-            if(cur_vertex_index == 0)
-                global_map.Astar_local(target, namespace_, namespace_, flag, false);
-            else
-                local_maps[cur_bbox_index].Astar_local(target, namespace_, namespace_, flag, false);
-            if(!flag)
-                ROS_INFO_STREAM(namespace_ + " Astar succeed!");
-            else 
-                ROS_INFO_STREAM(namespace_ + " Astar failed!");  
-            waypoint_get = update_target_waypoint();
-            if(cur_vertex_index == 0)
-                path_show = global_map.get_path_show();
-            else
-                path_show = local_maps[cur_bbox_index].get_path_show();
-            if(global_map.get_index(now_global_position) == global_map.get_index(target) || flag){
-                ROS_INFO_STREAM(namespace_ + " moving to next target!");
-                cur_vertex_index++;
-                if(cur_vertex_index >= bbox_surface_trajectories[cur_bbox_index][cur_surface_index].size()){
-                    cur_vertex_index = 0;
-                    cur_surface_index++;
-                    if(cur_surface_index >= 4){
-                        cur_surface_index = 0;
-                        cur_bbox_index++;
-                        if(cur_bbox_index >= assigned_bbox_set.size()){
-                            cur_bbox_index = 0;
-                        }
-                    }
-                }
-                //if(cur_vertex_index == 7){
-                //    if(cur_bbox_index == (assigned_bbox_set.size() - 1)){
-                //        return;
-                //    }
-                //    cur_bbox_index++;
-                //    cur_vertex_index = 0;
-                //}
-                //cur_vertex_index++;
-            }
+            astar_replanning();
         } else {
-            ROS_INFO_STREAM(namespace_ + " not involved in planning!");
+            if(!info_mannager.get_leader_com()){
+                return;
+            }
+
+            if(!started_mission){
+                started_mission = true;
+                mission_start_time = ros::Time::now().toSec();
+                Vector3d target;
+                info_mannager.get_leader_position(target);
+                leader_first_pos = target;
+            }
+
+
+            if(!started_scanning){
+                if(ros::Time::now().toSec()- mission_start_time < 10){
+                    return;
+                }
+                bool flag = false;
+                ROS_INFO_STREAM(namespace_ + " Astar starting!");
+                global_map.Astar_local(leader_first_pos, namespace_,  info_mannager.get_leader(), flag, false);
+                if(!flag)
+                    ROS_INFO_STREAM(namespace_ + " Astar succeed!");
+                else {
+                    ROS_INFO_STREAM(namespace_ + " Astar failed!");
+                    Vector3d target;
+                    info_mannager.get_leader_position(target);
+                    leader_first_pos = target;
+                    return;
+                }
+                waypoint_get = update_target_waypoint();
+                path_show = global_map.get_path_show();
+                if(global_map.get_index(now_global_position) == global_map.get_index(leader_first_pos)){
+                    started_scanning = true;
+                }
+            }
+
+            if(started_scanning){
+                astar_replanning();
+            }
         }
 
         ROS_INFO_STREAM(namespace_ + " replanning finished!");
@@ -225,7 +376,7 @@ public:
             if(cur_vertex_index == 0)
                 target_position = global_map.get_next_point(true);
             else
-                target_position = local_maps[cur_bbox_index].get_next_point(true);
+                target_position = local_maps[cur_actual_bbox_index].get_next_point(true);
             ROS_INFO("%s, %s, %s", to_string(target_position[0]).c_str(), to_string(target_position[1]).c_str(), to_string(target_position[2]).c_str());
             return true;
         }
@@ -243,11 +394,7 @@ public:
         }
         if (waypoint_get)
         {
-            //ROS_INFO_STREAM(namespace_ + " waypoint get!");
-            //if(cur_vertex_index == 0)
-            //    global_map.get_gimbal_rpy(target_angle_rpy);
-            //else
-            //    local_maps[cur_bbox_index].get_gimbal_rpy(target_angle_rpy);
+            ROS_INFO_STREAM(namespace_ + " waypoint get!");
             
             Vector3d target_angle_gimbal = get_gimbal_rpy_as_surface_normal();
             
@@ -262,8 +409,112 @@ public:
         }
     }
 
-    void receive_communication(string msg){
+    bool construct_position_plan_msg(string &msg)
+    {
+        if (!odom_get || !finish_init)
+        {
+            return false;
+        }
+        else if (!is_planned)
+        {
+            msg = "position;" + namespace_ + ";" + point2str(now_global_position) + ";";
+            return true;
+        }
+        else
+        {
+            msg = "position;" + namespace_ + ";" + point2str(now_global_position) + ";" + point2str(planning_point);
+            return true;
+        }
+    }
 
+    bool construct_global_massage(string &msg)
+    {
+        if (!is_leader || !finish_init)
+        {
+            return false;
+        }
+        msg = "mapglobal;" + to_string(Teamid) + ";" + global_map.get_num_str() + global_map.get_map_str();
+        return true;
+    }
+    bool construct_local_massage(string &msg)
+    {
+        if (!is_leader || !finish_init || local_maps.size() == cur_actual_bbox_index)
+        {
+            return false;
+        }
+        msg = "map;" + to_string(Teamid) + ';' + local_maps[cur_actual_bbox_index].get_num_str() + local_maps[cur_actual_bbox_index].get_map_str();
+        return true;
+    }
+
+    void receive_communication(string str){
+        if (!finish_init)
+        {
+            return;
+        }
+
+        istringstream msg_stream(str);
+        string topic;
+        getline(msg_stream, topic, ';');
+
+        if (topic == "position")
+        {
+            istringstream global_po_str(str);
+            istringstream local_po_str(str);
+            getline(global_po_str, topic, ';');
+            getline(local_po_str, topic, ';');
+            info_mannager.reset_position_path(msg_stream);
+            
+            if (local_maps.size() > cur_actual_bbox_index)
+            {
+                global_map.update_local_dict(global_po_str);
+                local_maps[cur_actual_bbox_index].update_local_dict(local_po_str);
+            }
+            else
+            {
+                global_map.update_local_dict(global_po_str);
+            }
+            
+            return;
+        }
+        else if (topic == "map")
+        {
+            string target_team;
+            getline(msg_stream, target_team, ';');
+
+            if (stoi(target_team) == Teamid)
+            {
+                // insert map_front from string
+                if (local_maps.size() > cur_actual_bbox_index)
+                {
+                    local_maps[cur_actual_bbox_index].insert_cloud_from_str(msg_stream);
+                }
+                else
+                {
+                    return;
+                }
+            }
+            else
+            {
+                return;
+            }
+        }
+        else if (topic == "mapglobal")
+        {
+            string target_team;
+
+            getline(msg_stream, target_team, ';');
+
+            if (stoi(target_team) == Teamid)
+            {
+                global_map.insert_cloud_from_str(msg_stream);
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        
     }
 
     
@@ -286,53 +537,225 @@ private:
     //for communication
     bool is_planned = false;
     Eigen::Vector3d planning_point;
-
+    info_agent info_mannager;
 
 
     nav_msgs::Path path_show;
     bool odom_get = false;
 
+
     Eigen::Vector3d initial_position;
 
     vector<Boundingbox> assigned_bbox_set;
 
-    int cur_bbox_index = 0;
+    int cur_trajectory_bbox_index = 0;
+    int cur_actual_bbox_index = 0;
     int cur_vertex_index = 0;
     int cur_surface_index = 0;
     vector<vector<vector<Eigen::Vector3d>>> bbox_surface_trajectories;
 
+    int Teamid = 0;
+    vector<string> teammates_name;
+    bool started_mission = false;
+    bool started_scanning = false;
+    Eigen::Vector3d leader_first_pos;
+    double mission_start_time = 0;
+
+    bool try_alternative_entry_point = false;
+
+    int iteration = 0;
+
+    double speed_upper_limit = 2;
+
+    void astar_replanning(){
+        ROS_INFO_STREAM(namespace_ + " replanning!");
+        //surface 0: 0, 1, 4, 5; surface 1: 1, 2, 5, 6; surface 2: 2, 3, 6, 7; surface 3: 3, 0, 7, 4
+
+        Eigen::Vector3d target = bbox_surface_trajectories[cur_trajectory_bbox_index][cur_surface_index][cur_vertex_index];
+        bool flag = false;
+        ROS_INFO_STREAM(namespace_ + " Astar starting!");
+        if(cur_vertex_index == 0 || try_alternative_entry_point){
+            global_map.Astar_local(target, namespace_,  info_mannager.get_leader(), flag, false);
+            speed_upper_limit = 3.5;
+        }
+        else{
+            local_maps[cur_actual_bbox_index].Astar_local(target, namespace_,  info_mannager.get_leader(), flag, false);
+            speed_upper_limit = 2.0;
+        }
+        if(!flag) {
+            ROS_INFO_STREAM(namespace_ + " Astar succeed!");
+            try_alternative_entry_point = false;
+        }
+        else {
+            ROS_INFO_STREAM(namespace_ + " Astar failed!");
+            try_alternative_entry_point = true;
+        }
+        waypoint_get = update_target_waypoint();
+        if(cur_vertex_index == 0)
+            path_show = global_map.get_path_show();
+        else
+            path_show = local_maps[cur_actual_bbox_index].get_path_show();
+
+        if(global_map.get_index(now_global_position) == global_map.get_index(target) || flag){
+            ROS_INFO_STREAM(namespace_ + " moving to next target!");
+            cur_vertex_index++;
+            if(cur_vertex_index >= bbox_surface_trajectories[cur_trajectory_bbox_index][cur_surface_index].size()){
+                cur_vertex_index = 0;
+                cur_surface_index++;
+                if(cur_surface_index >= 4){
+                    cur_surface_index = 0;
+                    cur_trajectory_bbox_index++;
+                    if(cur_trajectory_bbox_index >= assigned_bbox_set.size()){
+                        iteration++;
+                        trajectory_planning_bbox_set();
+                        cur_trajectory_bbox_index = 0;
+                    }
+                }
+            }
+        }
+
+        cur_actual_bbox_index = (iteration % 2 == 0)?cur_trajectory_bbox_index:(assigned_bbox_set.size()-1-cur_trajectory_bbox_index);
+    }
+    
+
+    void trajectory_planning_bbox_set(){
+        ROS_INFO("Planning trajectory");
+        bbox_surface_trajectories.clear();
+        if(iteration % 2 == 1){
+            for(int i = assigned_bbox_set.size()-1; i >= 0; i--){
+                Boundingbox bbox = assigned_bbox_set[i];
+                if(is_leader)
+                    trajectory_planning_surface_leader(bbox);
+                else
+                    trajectory_planning_surface(bbox);
+            }
+        } else {
+            for(int i = 0; i < assigned_bbox_set.size(); i++){
+                Boundingbox bbox = assigned_bbox_set[i];
+                if(is_leader)
+                    trajectory_planning_surface_leader(bbox);
+                else
+                    trajectory_planning_surface(bbox);
+            }
+        }        
+    }
+
+    void trajectory_planning_surface_leader(Boundingbox bbox){
+        if(iteration % 2 == 0){ 
+            vector<vector<Eigen::Vector3d>> surface_trajectories;
+            for(int i = 0; i < 4; i++){
+                vector<Eigen::Vector3d> trajectory;
+                Vector3d v0 = bbox.getVertices()[i%4];
+                Vector3d v1 = bbox.getVertices()[(i+1)%4];
+                Vector3d dist10= v1 - v0;
+                Vector3d v2 = bbox.getVertices()[i%4+4];
+                Vector3d v3 = bbox.getVertices()[(i+1)%4+4];
+                bool flipped = false;
+                for(Vector3d v = v0; v.z() <= v2.z(); v += Vector3d(0,0,20.0)){
+                    if(!flipped){
+                        trajectory.push_back(v);
+                        trajectory.push_back(v+dist10);
+                    } else {
+                        trajectory.push_back(v+dist10);
+                        trajectory.push_back(v);
+                    }
+                    flipped = !flipped;
+                }
+                surface_trajectories.push_back(trajectory);
+            }  
+            bbox_surface_trajectories.push_back(surface_trajectories);
+        } else {
+            vector<vector<Eigen::Vector3d>> surface_trajectories;
+            for(int i = 3; i >=0; i--){
+                vector<Eigen::Vector3d> trajectory;
+                Vector3d v0 = bbox.getVertices()[(i+1)%4+4];
+                Vector3d v1 = bbox.getVertices()[i%4+4];
+                Vector3d dist10= v1 - v0;
+                Vector3d v2 = bbox.getVertices()[(i+1)%4];
+                Vector3d v3 = bbox.getVertices()[i%4];
+                bool flipped = false;
+                for(Vector3d v = v0; v.z() >= v2.z(); v -= Vector3d(0,0,3.0)){
+                    if(!flipped){
+                        trajectory.push_back(v);
+                        trajectory.push_back(v+dist10);
+                    } else {
+                        trajectory.push_back(v+dist10);
+                        trajectory.push_back(v);
+                    }
+                    flipped = !flipped;
+                }
+                surface_trajectories.push_back(trajectory);
+            }  
+            bbox_surface_trajectories.push_back(surface_trajectories);
+        }
+    }
 
     void trajectory_planning_surface(Boundingbox bbox){
-        
-        vector<vector<Eigen::Vector3d>> surface_trajectories;
-        for(int i = 0; i < 4; i++){
-            vector<Eigen::Vector3d> trajectory;
-            Vector3d v0 = bbox.getVertices()[i%4];
-            Vector3d v1 = bbox.getVertices()[(i+1)%4];
-            Vector3d dist10= v1 - v0;
-            Vector3d v2 = bbox.getVertices()[i%4+4];
-            Vector3d v3 = bbox.getVertices()[(i+1)%4+4];
-            bool flipped = false;
-            for(Vector3d v = v0; v.z() <= v2.z(); v += Vector3d(0,0,2.0)){
-                if(!flipped){
-                    trajectory.push_back(v);
-                    trajectory.push_back(v+dist10);
-                } else {
-                    trajectory.push_back(v+dist10);
-                    trajectory.push_back(v);
+        if(iteration % 2 == 0){ 
+            vector<vector<Eigen::Vector3d>> surface_trajectories;
+            for(int i = 0; i < 4; i++){
+                vector<Eigen::Vector3d> trajectory;
+                Vector3d v0 = bbox.getVertices()[i%4];
+                Vector3d v1 = bbox.getVertices()[(i+1)%4];
+                Vector3d dist10= v1 - v0;
+                Vector3d v2 = bbox.getVertices()[i%4+4];
+                Vector3d v3 = bbox.getVertices()[(i+1)%4+4];
+                bool flipped = false;
+                double step = 4.0;
+                if(namespace_ == "/nanyang"){
+                    step = 2.0;
                 }
-                flipped = !flipped;
-            }
-            surface_trajectories.push_back(trajectory);
-        }  
-        bbox_surface_trajectories.push_back(surface_trajectories);
+                for(Vector3d v = v0; v.z() <= v2.z(); v += Vector3d(0,0,step)){
+                    if(!flipped){
+                        trajectory.push_back(v);
+                        trajectory.push_back(v+dist10);
+                    } else {
+                        trajectory.push_back(v+dist10);
+                        trajectory.push_back(v);
+                    }
+                    flipped = !flipped;
+                }
+                surface_trajectories.push_back(trajectory);
+            }  
+            bbox_surface_trajectories.push_back(surface_trajectories);
+        } else {
+            vector<vector<Eigen::Vector3d>> surface_trajectories;
+            for(int i = 3; i >=0; i--){
+                vector<Eigen::Vector3d> trajectory;
+                Vector3d v0 = bbox.getVertices()[(i+1)%4+4];
+                Vector3d v1 = bbox.getVertices()[i%4+4];
+                Vector3d dist10= v1 - v0;
+                Vector3d v2 = bbox.getVertices()[(i+1)%4];
+                Vector3d v3 = bbox.getVertices()[i%4];
+                bool flipped = false;
+                double step = 4.0;
+                if(namespace_ == "/nanyang"){
+                    step = 2.0;
+                }
+                for(Vector3d v = v0; v.z() >= v2.z(); v -= Vector3d(0,0,step)){
+                    if(!flipped){
+                        trajectory.push_back(v);
+                        trajectory.push_back(v+dist10);
+                    } else {
+                        trajectory.push_back(v+dist10);
+                        trajectory.push_back(v);
+                    }
+                    flipped = !flipped;
+                }
+                surface_trajectories.push_back(trajectory);
+            }  
+            bbox_surface_trajectories.push_back(surface_trajectories);
+        }
         
     }
 
 
     double get_yaw_as_surface_normal(){
-        Vector3d dir = assigned_bbox_set[cur_bbox_index].getVertices()[(cur_surface_index + 3)%4] - assigned_bbox_set[cur_bbox_index].getVertices()[cur_surface_index];
-
+        Vector3d dir;
+        if(iteration % 2 == 0)
+            dir = assigned_bbox_set[cur_actual_bbox_index].getVertices()[(cur_surface_index + 3)%4] - assigned_bbox_set[cur_actual_bbox_index].getVertices()[cur_surface_index];
+        else 
+            dir = assigned_bbox_set[cur_actual_bbox_index].getVertices()[(6-cur_surface_index)%4] - assigned_bbox_set[cur_actual_bbox_index].getVertices()[3-cur_surface_index];
         Eigen::Quaterniond quaternion;
         quaternion.setFromTwoVectors(Eigen::Vector3d(1, 0, 0), dir);
         Eigen::Matrix3d rotation_matrix_here = quaternion.toRotationMatrix();
@@ -341,7 +764,11 @@ private:
     }
 
     Eigen::Vector3d get_gimbal_rpy_as_surface_normal(){
-        Vector3d dir = assigned_bbox_set[cur_bbox_index].getVertices()[(cur_surface_index + 3)%4] - assigned_bbox_set[cur_bbox_index].getVertices()[cur_surface_index];
+        Vector3d dir;
+        if(iteration % 2 == 0)
+            dir = assigned_bbox_set[cur_actual_bbox_index].getVertices()[(cur_surface_index + 3)%4] - assigned_bbox_set[cur_actual_bbox_index].getVertices()[cur_surface_index];
+        else 
+            dir = assigned_bbox_set[cur_actual_bbox_index].getVertices()[(6-cur_surface_index)%4] - assigned_bbox_set[cur_actual_bbox_index].getVertices()[3-cur_surface_index];
         
         Vector3d localDir = drone_rotation_matrix.inverse()*dir;
 
@@ -415,7 +842,7 @@ private:
         geometry_msgs::Twist accel_msg, vel_msg;
 
         Eigen::Vector3d difference = (target - position);
-        if (difference.norm() < 2)
+        if (difference.norm() < speed_upper_limit)
         {
             transform_msg.translation.x = target.x();
             transform_msg.translation.y = target.y();
@@ -426,7 +853,7 @@ private:
         }
         else
         {
-            Eigen::Vector3d target_pos = 2 * difference / difference.norm();
+            Eigen::Vector3d target_pos = speed_upper_limit * difference / difference.norm();
             transform_msg.translation.x = 0;
             transform_msg.translation.y = 0;
             transform_msg.translation.z = 0;
@@ -496,6 +923,12 @@ private:
 
         return rpy;
     }
+    string point2str(Eigen::Vector3d point)
+    {
+        string result;
+        result = to_string(point.x()) + "," + to_string(point.y()) + "," + to_string(point.z());
+        return result;
+    }
     string btos(bool x){
         if(x) return "true";
         return "false";
@@ -509,7 +942,7 @@ class VixionAgent
 public: 
     VixionAgent(ros::NodeHandlePtr &nh_ptr) : nh_ptr(nh_ptr)
     {
-        //TimerProbeNbr = nh_ptr->createTimer(ros::Duration(1.0 / 10.0), &VixionAgent::TimerProbeNbrCB, this);
+        TimerProbeNbr = nh_ptr->createTimer(ros::Duration(1.0 / 10.0), &VixionAgent::TimerProbeNbrCB, this);
         TimerPlan     = nh_ptr->createTimer(ros::Duration(1.0 / 2.0),  &VixionAgent::TimerPlanCB,     this);
         TimerCmdOut   = nh_ptr->createTimer(ros::Duration(1.0 / 10.0), &VixionAgent::TimerCmdOutCB,   this);
         //TimerViz      = nh_ptr->createTimer(ros::Duration(1.0 / 1.0),  &VixionAgent::TimerVizCB,      this);
@@ -662,6 +1095,24 @@ private:
 
         return;
     }
+
+    void TimerProbeNbrCB(const ros::TimerEvent &)
+    {
+        if (!serviceAvailable || !map_initialise)
+        {
+            return;
+        }
+        std_msgs::String msg;
+        if (mm.construct_position_plan_msg(msg.data))
+        {
+            communication_pub_.publish(msg);
+        }
+        else
+        {
+            return;
+        }
+        return;
+    }
     
     void TaskCallback(const std_msgs::String &msg){
         if (pre_task == msg.data && pre_task != "")
@@ -685,6 +1136,15 @@ private:
         if (!serviceAvailable || !communication_initialise)
         {
             return;
+        }
+        std_msgs::String msg_map;
+        if (mm.construct_global_massage(msg_map.data))
+        {
+            communication_pub_.publish(msg_map);
+        }
+        if (mm.construct_local_massage(msg_map.data))
+        {
+            communication_pub_.publish(msg_map);
         }
     } 
 
